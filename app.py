@@ -71,6 +71,163 @@ if 'api_key' not in st.session_state:
     st.session_state.api_key = ""
 if 'selected_model' not in st.session_state:
     st.session_state.selected_model = "claude-3-5-sonnet-20240620"
+# Anthropic API 호출 함수
+def call_anthropic_api(prompt, model="claude-3-haiku-20240307", max_tokens=4000, temperature=0.3, system=""):
+    api_key = st.session_state.api_key
+    
+    if not api_key:
+        raise Exception("API 키가 설정되지 않았습니다.")
+    
+    headers = {
+        "x-api-key": api_key,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json"
+    }
+    
+    data = {
+        "model": model,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+        "messages": [{"role": "user", "content": prompt}]
+    }
+    
+    if system:
+        data["system"] = system
+    
+    try:
+        response = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers=headers,
+            json=data
+        )
+        
+        if response.status_code != 200:
+            raise Exception(f"API 오류: {response.status_code} - {response.text}")
+        
+        return response.json()["content"][0]["text"]
+    except Exception as e:
+        raise Exception(f"API 호출 오류: {str(e)}")
+
+# 채용 공고 분석 함수
+def analyze_job_posting(job_id):
+    """채용 공고를 분석하여 주요 요구사항, 키워드, 우대사항 등을 추출"""
+    job_content = st.session_state.job_postings[job_id]['content']
+    
+    try:
+        # 프롬프트 구성
+        prompt = f"""
+        당신은 채용 공고 분석 전문가입니다. 다음 채용 공고를 분석하여 구직자가 이력서를 최적화하는 데 필요한 정보를 추출해주세요.
+        
+        ## 채용 공고:
+        {job_content}
+        
+        다음 형식으로 분석 결과를 제공해주세요:
+        
+        1. 직무 요약: [직무에 대한 간략한 요약]
+        2. 핵심 요구사항: [필수적인 기술, 경험, 자격 요건을 항목별로 나열]
+        3. 우대사항: [우대하는 기술, 경험, 자격 요건을 항목별로 나열]
+        4. 주요 키워드: [이력서에 포함되면 좋을 핵심 키워드 10-15개 나열]
+        5. 회사 가치관/문화: [회사가 중요시하는 가치나 문화적 특성]
+        6. 이력서 최적화 전략: [이 채용 공고에 맞게 이력서를 최적화하는 구체적인 전략과 조언]
+        
+        각 섹션을 상세하게 작성해주시고, 채용 공고에서 명시적으로 언급되지 않았지만 해당 직무에서 중요할 수 있는 요소도 포함해주세요.
+        """
+        
+        # API 호출
+        analysis_result = call_anthropic_api(
+            prompt=prompt,
+            model=st.session_state.selected_model,
+            max_tokens=4000,
+            temperature=0.3,
+            system="당신은 채용 공고 분석 전문가입니다. 구직자가 이력서를 최적화할 수 있도록 채용 공고의 핵심 내용을 분석해주세요."
+        )
+        
+        # 분석 결과 저장
+        st.session_state.job_analyses[job_id] = analysis_result
+        
+        return analysis_result
+        
+    except Exception as e:
+        raise Exception(f"채용 공고 분석 중 오류 발생: {str(e)}")
+
+# 고급 이력서 맞춤화 함수
+def tailor_resume_advanced(job_id, selected_resume_names):
+    """채용 공고, 분석 결과, 맞춤화 설정을 적용하여 이력서 최적화"""
+    job_content = st.session_state.job_postings[job_id]['content']
+    job_title = st.session_state.job_postings[job_id]['title']
+    
+    # 선택된 이력서 내용 가져오기
+    selected_contents = [st.session_state.resume_versions[name] for name in selected_resume_names]
+    
+    # 맞춤화 설정 가져오기
+    custom_settings = st.session_state.customization_settings.get(job_id, {})
+    emphasis = custom_settings.get('emphasis_skills', '')
+    deemphasis = custom_settings.get('deemphasize_skills', '')
+    
+    tone_map = {
+        'professional': '전문적/공식적',
+        'creative': '창의적/활기찬',
+        'balanced': '균형잡힌/중립적',
+        'results_driven': '성과 중심적',
+        'collaborative': '협업 중심적'
+    }
+    
+    tone = tone_map.get(custom_settings.get('tone', 'professional'), '전문적/공식적')
+    length_val = custom_settings.get('length', 2)
+    length_desc = ['간결한', '표준', '상세한'][length_val-1]
+    
+    # 분석 결과 가져오기
+    analysis = st.session_state.job_analyses.get(job_id, '아직 분석되지 않았습니다.')
+    
+    try:
+        # 프롬프트 구성
+        prompt = f"""
+        당신은 전문 이력서 맞춤화 전문가입니다. 다음 이력서 버전들을 참고하여 
+        제공된 채용 공고에 최적화된 새로운 이력서를 작성해 주세요.
+        
+        ## 채용 공고: {job_title}
+        {job_content}
+        
+        ## 채용 공고 분석 결과:
+        {analysis}
+        
+        ## 이력서 버전들:
+        {selected_contents}
+        
+        ## 맞춤화 설정:
+        - 강조할 기술/경험: {emphasis}
+        - 약화할 기술/경험: {deemphasis}
+        - 이력서 톤: {tone}
+        - 이력서 길이: {length_desc}
+        
+        다음 지침에 따라 이력서를 맞춤화해주세요:
+        1. 채용 공고의 요구사항과 일치하는 기술, 경험, 성과를 강조하세요.
+        2. 관련성이 낮은 내용은 줄이거나 제외하세요.
+        3. 위에서 지정한 '강조할 기술/경험'을 특별히 부각시키세요.
+        4. '약화할 기술/경험'은 최소화하거나 더 관련성 있는 다른 기술로 대체하세요.
+        5. 지정된 톤({tone})에 맞게 문체를 조정하세요.
+        6. 이력서 길이는 {length_desc} 수준으로 조정하세요.
+        7. 이력서 형식과 구조는 원본 이력서를 따라주세요.
+        8. 채용 공고 분석 결과의 주요 키워드와 핵심 요구사항을 반영하세요.
+        
+        최종 이력서는 구직자가 이 특정 채용 공고에 가장 적합한 후보자로 보이도록 맞춤화되어야 합니다.
+        """
+        
+        # API 호출
+        result = call_anthropic_api(
+            prompt=prompt,
+            model=st.session_state.selected_model,
+            max_tokens=4000,
+            temperature=0.3,
+            system="당신은 전문 이력서 맞춤화 전문가입니다. 채용 공고에 가장 적합한 이력서를 작성해 주세요."
+        )
+        
+        # 결과 반환
+        return result
+    
+    except Exception as e:
+        raise Exception(f"이력서 맞춤화 중 오류 발생: {str(e)}")
+        
 
 # Anthropic API 호출 함수
 def call_anthropic_api(prompt, model="claude-3-haiku-20240307", max_tokens=4000, temperature=0.3, system=""):
@@ -417,74 +574,6 @@ with tabs[3]:
                                 st.error("이력서 버전 이름을 입력해주세요.")
                     except Exception as e:
                         st.error(f"맞춤화 중 오류가 발생했습니다: {str(e)}")
-
-# 채용 공고 분석 함수
-def analyze_job_posting(job_id):
-    """채용 공고를 분석하여 주요 요구사항, 키워드, 우대사항 등을 추출"""
-    job_content = st.session_state.job_postings[job_id]['content']
-    
-    try:
-        # 프롬프트 구성
-        prompt = f"""
-        당신은 채용 공고 분석 전문가입니다. 다음 채용 공고를 분석하여 구직자가 이력서를 최적화하는 데 필요한 정보를 추출해주세요.
-        
-        ## 채용 공고:
-        {job_content}
-        
-        다음 형식으로 분석 결과를 제공해주세요:
-        
-        1. 직무 요약: [직무에 대한 간략한 요약]
-        2. 핵심 요구사항: [필수적인 기술, 경험, 자격 요건을 항목별로 나열]
-        3. 우대사항: [우대하는 기술, 경험, 자격 요건을 항목별로 나열]
-        4. 주요 키워드: [이력서에 포함되면 좋을 핵심 키워드 10-15개 나열]
-        5. 회사 가치관/문화: [회사가 중요시하는 가치나 문화적 특성]
-        6. 이력서 최적화 전략: [이 채용 공고에 맞게 이력서를 최적화하는 구체적인 전략과 조언]
-        
-        각 섹션을 상세하게 작성해주시고, 채용 공고에서 명시적으로 언급되지 않았지만 해당 직무에서 중요할 수 있는 요소도 포함해주세요.
-        """
-        
-        # API 호출
-        analysis_result = call_anthropic_api(
-            prompt=prompt,
-            model=st.session_state.selected_model,
-            max_tokens=4000,
-            temperature=0.3,
-            system="당신은 채용 공고 분석 전문가입니다. 구직자가 이력서를 최적화할 수 있도록 채용 공고의 핵심 내용을 분석해주세요."
-        )
-        
-        # 분석 결과 저장
-        st.session_state.job_analyses[job_id] = analysis_result
-        
-        return analysis_result
-        
-    except Exception as e:
-        raise Exception(f"채용 공고 분석 중 오류 발생: {str(e)}")
-
-# 고급 이력서 맞춤화 함수
-def tailor_resume_advanced(job_id, selected_resume_names):
-    """채용 공고, 분석 결과, 맞춤화 설정을 적용하여 이력서 최적화"""
-    job_content = st.session_state.job_postings[job_id]['content']
-    job_title = st.session_state.job_postings[job_id]['title']
-    
-    # 선택된 이력서 내용 가져오기
-    selected_contents = [st.session_state.resume_versions[name] for name in selected_resume_names]
-    
-    # 맞춤화 설정 가져오기
-    custom_settings = st.session_state.customization_settings.get(job_id, {})
-    emphasis = custom_settings.get('emphasis_skills', '')
-    deemphasis = custom_settings.get('deemphasize_skills', '')
-    
-    tone_map = {
-        'professional': '전문적/공식적',
-        'creative': '창의적/활기찬',
-        'balanced': '균형잡힌/중립적',
-        'results_driven': '성과 중심적',
-        'collaborative': '협업 중심적'
-    }
-    
-    tone = tone_map.get(custom_settings.get('tone', 'professional'), '전문적/공식적')
-    length_val = custom_settings.get('length', 2)
-    length_desc = ['간결한', '표준', '상세한'][length_val-1]
     
     # 분석 결과 가져오기
     analysis = st.session_state.job_analyses.get(job_id, '아직 분석되지 않았습니다.')
