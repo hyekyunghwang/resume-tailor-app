@@ -71,7 +71,8 @@ if 'api_key' not in st.session_state:
     st.session_state.api_key = ""
 if 'selected_model' not in st.session_state:
     st.session_state.selected_model = "claude-3-5-sonnet-20240620"
-# Anthropic API 호출 함수
+
+#Anthropic API 호출 함수
 def call_anthropic_api(prompt, model="claude-3-haiku-20240307", max_tokens=4000, temperature=0.3, system=""):
     api_key = st.session_state.api_key
     
@@ -227,44 +228,6 @@ def tailor_resume_advanced(job_id, selected_resume_names):
     
     except Exception as e:
         raise Exception(f"이력서 맞춤화 중 오류 발생: {str(e)}")
-        
-
-# Anthropic API 호출 함수
-def call_anthropic_api(prompt, model="claude-3-haiku-20240307", max_tokens=4000, temperature=0.3, system=""):
-    api_key = st.session_state.api_key
-    
-    if not api_key:
-        raise Exception("API 키가 설정되지 않았습니다.")
-    
-    headers = {
-        "x-api-key": api_key,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json"
-    }
-    
-    data = {
-        "model": model,
-        "max_tokens": max_tokens,
-        "temperature": temperature,
-        "messages": [{"role": "user", "content": prompt}]
-    }
-    
-    if system:
-        data["system"] = system
-    
-    try:
-        response = requests.post(
-            "https://api.anthropic.com/v1/messages",
-            headers=headers,
-            json=data
-        )
-        
-        if response.status_code != 200:
-            raise Exception(f"API 오류: {response.status_code} - {response.text}")
-        
-        return response.json()["content"][0]["text"]
-    except Exception as e:
-        raise Exception(f"API 호출 오류: {str(e)}")
 
 # 사이드바에 API 키 설정
 with st.sidebar:
@@ -574,55 +537,3 @@ with tabs[3]:
                                 st.error("이력서 버전 이름을 입력해주세요.")
                     except Exception as e:
                         st.error(f"맞춤화 중 오류가 발생했습니다: {str(e)}")
-    
-    # 분석 결과 가져오기
-    analysis = st.session_state.job_analyses.get(job_id, '아직 분석되지 않았습니다.')
-    
-    try:
-        # 프롬프트 구성
-        prompt = f"""
-        당신은 전문 이력서 맞춤화 전문가입니다. 다음 이력서 버전들을 참고하여 
-        제공된 채용 공고에 최적화된 새로운 이력서를 작성해 주세요.
-        
-        ## 채용 공고: {job_title}
-        {job_content}
-        
-        ## 채용 공고 분석 결과:
-        {analysis}
-        
-        ## 이력서 버전들:
-        {selected_contents}
-        
-        ## 맞춤화 설정:
-        - 강조할 기술/경험: {emphasis}
-        - 약화할 기술/경험: {deemphasis}
-        - 이력서 톤: {tone}
-        - 이력서 길이: {length_desc}
-        
-        다음 지침에 따라 이력서를 맞춤화해주세요:
-        1. 채용 공고의 요구사항과 일치하는 기술, 경험, 성과를 강조하세요.
-        2. 관련성이 낮은 내용은 줄이거나 제외하세요.
-        3. 위에서 지정한 '강조할 기술/경험'을 특별히 부각시키세요.
-        4. '약화할 기술/경험'은 최소화하거나 더 관련성 있는 다른 기술로 대체하세요.
-        5. 지정된 톤({tone})에 맞게 문체를 조정하세요.
-        6. 이력서 길이는 {length_desc} 수준으로 조정하세요.
-        7. 이력서 형식과 구조는 원본 이력서를 따라주세요.
-        8. 채용 공고 분석 결과의 주요 키워드와 핵심 요구사항을 반영하세요.
-        
-        최종 이력서는 구직자가 이 특정 채용 공고에 가장 적합한 후보자로 보이도록 맞춤화되어야 합니다.
-        """
-            
-        # API 호출
-        result = call_anthropic_api(
-            prompt=prompt,
-            model=st.session_state.selected_model,
-            max_tokens=4000,
-            temperature=0.3,
-            system="당신은 전문 이력서 맞춤화 전문가입니다. 채용 공고에 가장 적합한 이력서를 작성해 주세요."
-        )
-        
-        # 결과 반환
-        return result
-    
-    except Exception as e:
-        raise Exception(f"이력서 맞춤화 중 오류 발생: {str(e)}")
