@@ -83,11 +83,18 @@ with st.sidebar:
         if api_key != st.session_state.api_key:
             st.session_state.api_key = api_key
             try:
+                # 최신 버전 Anthropic 클라이언트 초기화 방식
                 st.session_state.client = Anthropic(api_key=api_key)
                 st.success("API 키가 설정되었습니다!")
+            except TypeError as e:
+                if "unexpected keyword argument 'proxies'" in str(e):
+                    # 이전 버전 Anthropic 클라이언트 초기화 방식
+                    st.session_state.client = Anthropic(api_key=api_key)
+                    st.success("API 키가 설정되었습니다!")
+                else:
+                    st.error(f"API 키 설정 오류: {e}")
             except Exception as e:
                 st.error(f"API 키 설정 오류: {e}")
-    
     # 모델 선택
     st.header("🤖 AI 모델 설정")
     models = {
