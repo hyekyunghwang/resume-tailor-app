@@ -1,8 +1,8 @@
-# app.py - 이력서 맞춤화 Streamlit 앱
+# app.py - requests를 사용하는 이력서 맞춤화 Streamlit 앱
 import streamlit as st
 import json
 import os
-from anthropic import Anthropic
+import requests
 import time
 
 # 페이지 설정
@@ -69,10 +69,45 @@ if 'customization_settings' not in st.session_state:
     st.session_state.customization_settings = {}
 if 'api_key' not in st.session_state:
     st.session_state.api_key = ""
-if 'client' not in st.session_state:
-    st.session_state.client = None
 if 'selected_model' not in st.session_state:
     st.session_state.selected_model = "claude-3-5-sonnet-20240620"
+
+# Anthropic API 호출 함수
+def call_anthropic_api(prompt, model="claude-3-haiku-20240307", max_tokens=4000, temperature=0.3, system=""):
+    api_key = st.session_state.api_key
+    
+    if not api_key:
+        raise Exception("API 키가 설정되지 않았습니다.")
+    
+    headers = {
+        "x-api-key": api_key,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json"
+    }
+    
+    data = {
+        "model": model,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+        "messages": [{"role": "user", "content": prompt}]
+    }
+    
+    if system:
+        data["system"] = system
+    
+    try:
+        response = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers=headers,
+            json=data
+        )
+        
+        if response.status_code != 200:
+            raise Exception(f"API 오류: {response.status_code} - {response.text}")
+        
+        return response.json()["content"][0]["text"]
+    except Exception as e:
+        raise Exception(f"API 호출 오류: {str(e)}")
 
 # 사이드바에 API 키 설정
 with st.sidebar:
@@ -82,17 +117,8 @@ with st.sidebar:
     if api_key:
         if api_key != st.session_state.api_key:
             st.session_state.api_key = api_key
-            try:
-                # 간소화된 Anthropic 클라이언트 초기화
-                # 모든 버전에서 작동하도록 최소한의 필수 매개변수만 사용
-                st.session_state.client = Anthropic(api_key=api_key)
-                st.success("API 키가 설정되었습니다!")
-            except TypeError as e:
-                st.error(f"API 키 설정 오류: {str(e)}")
-                st.info("라이브러리 버전 호환성 문제가 발생했습니다. requirements.txt에서 anthropic 버전을 확인해주세요.")
-            except Exception as e:
-                st.error(f"API 키 설정 오류: {str(e)}")
-                
+            st.success("API 키가 설정되었습니다!")
+    
     # 모델 선택
     st.header("🤖 AI 모델 설정")
     models = {
@@ -234,7 +260,7 @@ with tabs[2]:
     st.markdown("<h2 class='section-header'>채용 공고 분석</h2>", unsafe_allow_html=True)
     
     # API 키 확인
-    if not st.session_state.client:
+    if not st.session_state.api_key:
         st.warning("사이드바에서 Anthropic API 키를 먼저 설정해주세요.")
     
     # 채용 공고 선택
@@ -250,9 +276,12 @@ with tabs[2]:
             st.markdown("<div class='info-message'>이 채용 공고는 이미 분석되었습니다. 다시 분석하려면 아래 버튼을 클릭하세요.</div>", unsafe_allow_html=True)
             if st.button("다시 분석", use_container_width=True):
                 with st.spinner("채용 공고를 분석하는 중..."):
-                    analysis_result = analyze_job_posting(selected_job_id)
-                st.success("채용 공고 분석이 완료되었습니다!")
-                st.experimental_rerun()
+                    try:
+                        analysis_result = analyze_job_posting(selected_job_id)
+                        st.success("채용 공고 분석이 완료되었습니다!")
+                        st.experimental_rerun()
+                    except Exception as e:
+                        st.error(f"분석 중 오류가 발생했습니다: {str(e)}")
             
             st.markdown("<h3 class='subsection-header'>분석 결과</h3>", unsafe_allow_html=True)
             st.markdown("<div class='result-area'>" + st.session_state.job_analyses[selected_job_id].replace('\n', '<br>') + "</div>", unsafe_allow_html=True)
@@ -262,16 +291,19 @@ with tabs[2]:
             
             if st.button("채용 공고 분석", use_container_width=True):
                 with st.spinner("채용 공고를 분석하는 중..."):
-                    analysis_result = analyze_job_posting(selected_job_id)
-                st.success("채용 공고 분석이 완료되었습니다!")
-                st.experimental_rerun()
+                    try:
+                        analysis_result = analyze_job_posting(selected_job_id)
+                        st.success("채용 공고 분석이 완료되었습니다!")
+                        st.experimental_rerun()
+                    except Exception as e:
+                        st.error(f"분석 중 오류가 발생했습니다: {str(e)}")
 
 # 4. 이력서 맞춤화 탭
 with tabs[3]:
     st.markdown("<h2 class='section-header'>이력서 맞춤화</h2>", unsafe_allow_html=True)
     
     # API 키 확인
-    if not st.session_state.client:
+    if not st.session_state.api_key:
         st.warning("사이드바에서 Anthropic API 키를 먼저 설정해주세요.")
     
     # 이력서 및 채용 공고 여부 확인
@@ -361,28 +393,30 @@ with tabs[3]:
                 st.error("최소한 하나의 이력서 버전을 선택해주세요.")
             else:
                 with st.spinner("이력서를 맞춤화하는 중... 잠시만 기다려주세요."):
-                    result = tailor_resume_advanced(selected_job_id, selected_resumes)
-                
-                st.markdown("<h3 class='subsection-header'>맞춤화된 이력서 결과</h3>", unsafe_allow_html=True)
-                st.markdown("<div class='result-area'>" + result.replace('\n', '<br>') + "</div>", unsafe_allow_html=True)
-                
-                # 결과 다운로드
-                st.download_button(
-                    label="결과 다운로드",
-                    data=result,
-                    file_name=f"맞춤화된_이력서_{selected_job_title.replace(' ', '_')}.txt",
-                    mime="text/plain"
-                )
-                
-                # 새 버전으로 저장
-                new_version_name = st.text_input("새 이력서 버전 이름", value=f"맞춤화된 이력서 - {selected_job_title}")
-                if st.button("새 버전으로 저장"):
-                    if new_version_name:
-                        st.session_state.resume_versions[new_version_name] = result
-                        st.success(f"'{new_version_name}' 이름으로 새 이력서가 저장되었습니다!")
-                    else:
-                        st.error("이력서 버전 이름을 입력해주세요.")
-
+                    try:
+                        result = tailor_resume_advanced(selected_job_id, selected_resumes)
+                        
+                        st.markdown("<h3 class='subsection-header'>맞춤화된 이력서 결과</h3>", unsafe_allow_html=True)
+                        st.markdown("<div class='result-area'>" + result.replace('\n', '<br>') + "</div>", unsafe_allow_html=True)
+                        
+                        # 결과 다운로드
+                        st.download_button(
+                            label="결과 다운로드",
+                            data=result,
+                            file_name=f"맞춤화된_이력서_{selected_job_title.replace(' ', '_')}.txt",
+                            mime="text/plain"
+                        )
+                        
+                        # 새 버전으로 저장
+                        new_version_name = st.text_input("새 이력서 버전 이름", value=f"맞춤화된 이력서 - {selected_job_title}")
+                        if st.button("새 버전으로 저장"):
+                            if new_version_name:
+                                st.session_state.resume_versions[new_version_name] = result
+                                st.success(f"'{new_version_name}' 이름으로 새 이력서가 저장되었습니다!")
+                            else:
+                                st.error("이력서 버전 이름을 입력해주세요.")
+                    except Exception as e:
+                        st.error(f"맞춤화 중 오류가 발생했습니다: {str(e)}")
 
 # 채용 공고 분석 함수
 def analyze_job_posting(job_id):
@@ -410,24 +444,21 @@ def analyze_job_posting(job_id):
         """
         
         # API 호출
-        response = st.session_state.client.messages.create(
+        analysis_result = call_anthropic_api(
+            prompt=prompt,
             model=st.session_state.selected_model,
             max_tokens=4000,
             temperature=0.3,
-            system="당신은 채용 공고 분석 전문가입니다. 구직자가 이력서를 최적화할 수 있도록 채용 공고의 핵심 내용을 분석해주세요.",
-            messages=[
-                {"role": "user", "content": prompt}
-            ]
+            system="당신은 채용 공고 분석 전문가입니다. 구직자가 이력서를 최적화할 수 있도록 채용 공고의 핵심 내용을 분석해주세요."
         )
         
         # 분석 결과 저장
-        analysis_result = response.content[0].text
         st.session_state.job_analyses[job_id] = analysis_result
         
         return analysis_result
         
     except Exception as e:
-        return f"채용 공고 분석 중 오류 발생: {e}"
+        raise Exception(f"채용 공고 분석 중 오류 발생: {str(e)}")
 
 # 고급 이력서 맞춤화 함수
 def tailor_resume_advanced(job_id, selected_resume_names):
@@ -491,20 +522,18 @@ def tailor_resume_advanced(job_id, selected_resume_names):
         
         최종 이력서는 구직자가 이 특정 채용 공고에 가장 적합한 후보자로 보이도록 맞춤화되어야 합니다.
         """
-        
+            
         # API 호출
-        response = st.session_state.client.messages.create(
+        result = call_anthropic_api(
+            prompt=prompt,
             model=st.session_state.selected_model,
             max_tokens=4000,
             temperature=0.3,
-            system="당신은 전문 이력서 맞춤화 전문가입니다. 채용 공고에 가장 적합한 이력서를 작성해 주세요.",
-            messages=[
-                {"role": "user", "content": prompt}
-            ]
+            system="당신은 전문 이력서 맞춤화 전문가입니다. 채용 공고에 가장 적합한 이력서를 작성해 주세요."
         )
         
         # 결과 반환
-        return response.content[0].text
+        return result
     
     except Exception as e:
-        return f"이력서 맞춤화 중 오류 발생: {e}"
+        raise Exception(f"이력서 맞춤화 중 오류 발생: {str(e)}")
