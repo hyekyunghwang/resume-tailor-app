@@ -681,18 +681,18 @@ if 'tailored_result' in st.session_state and st.session_state.tailored_result:
                 # 수정된 섹션들을 합쳐 새 이력서 생성
                 import json
                 reconstructed_resume = call_anthropic_api(
-    prompt=f"""
-    다음은 이력서의 각 섹션입니다. 이 섹션들을 자연스럽게 통합하여 완성된 이력서를 만들어주세요.
+                    prompt=f"""
+                    다음은 이력서의 각 섹션입니다. 이 섹션들을 자연스럽게 통합하여 완성된 이력서를 만들어주세요.
     
-    {json.dumps(st.session_state.resume_sections, indent=2, ensure_ascii=False)}
+                    {json.dumps(st.session_state.resume_sections, indent=2, ensure_ascii=False)}
     
-    원래 이력서의 형식과 구조를 최대한 유지하면서, 수정된 내용을 반영해주세요.
-    """,
-    model=st.session_state.selected_model,
-    temperature=0.2
-)
+                    원래 이력서의 형식과 구조를 최대한 유지하면서, 수정된 내용을 반영해주세요.
+                    """,
+                    model=st.session_state.selected_model,
+                    temperature=0.2
+                )    
 
-st.session_state.tailored_result = reconstructed_resume
-st.success("이력서가 성공적으로 재구성되었습니다!")
-st.markdown("<h3 class='subsection-header'>최종 이력서</h3>", unsafe_allow_html=True)
-st.markdown("<div class='result-area'>" + reconstructed_resume.replace('\n', '<br>') + "</div>", unsafe_allow_html=True)
+                st.session_state.tailored_result = reconstructed_resume
+                st.success("이력서가 성공적으로 재구성되었습니다!")
+                st.markdown("<h3 class='subsection-header'>최종 이력서</h3>", unsafe_allow_html=True)
+                st.markdown("<div class='result-area'>" + reconstructed_resume.replace('\n', '<br>') + "</div>", unsafe_allow_html=True)
