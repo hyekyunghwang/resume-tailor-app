@@ -232,9 +232,8 @@ def tailor_resume_advanced(job_id, selected_resume_names):
     
     except Exception as e:
         raise Exception(f"이력서 맞춤화 중 오류 발생: {str(e)}")
-2. 필요한 코드 변경사항
-다음은 app.py 파일에 추가할 코드의 핵심 부분입니다:
-python# 이력서 섹션 분리 함수 추가
+
+# 이력서 섹션 분리 함수 추가
 def split_resume_sections(resume_text):
     """이력서를 섹션별로 분리"""
     try:
