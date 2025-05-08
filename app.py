@@ -232,6 +232,86 @@ def tailor_resume_advanced(job_id, selected_resume_names):
     
     except Exception as e:
         raise Exception(f"이력서 맞춤화 중 오류 발생: {str(e)}")
+2. 필요한 코드 변경사항
+다음은 app.py 파일에 추가할 코드의 핵심 부분입니다:
+python# 이력서 섹션 분리 함수 추가
+def split_resume_sections(resume_text):
+    """이력서를 섹션별로 분리"""
+    try:
+        sections = call_anthropic_api(
+            prompt=f"""
+            다음 이력서를 주요 섹션으로 분리해주세요:
+            
+            {resume_text}
+            
+            다음 형식으로 분리된 섹션들을 JSON 형식으로 반환해주세요:
+            {{
+              "professional_summary": "전문 요약 내용...",
+              "work_experience": [
+                {{"title": "직위1", "company": "회사1", "content": "상세 내용..."}},
+                {{"title": "직위2", "company": "회사2", "content": "상세 내용..."}}
+              ],
+              "education": [
+                {{"degree": "학위1", "institution": "학교1", "content": "상세 내용..."}},
+                {{"degree": "학위2", "institution": "학교2", "content": "상세 내용..."}}
+              ],
+              "skills": ["기술1", "기술2", "기술3"],
+              "projects": [
+                {{"name": "프로젝트1", "content": "상세 내용..."}},
+                {{"name": "프로젝트2", "content": "상세 내용..."}}
+              ],
+              "additional_sections": [
+                {{"title": "섹션 제목1", "content": "상세 내용..."}},
+                {{"title": "섹션 제목2", "content": "상세 내용..."}}
+              ]
+            }}
+            
+            JSON 형식만 출력해주세요.
+            """,
+            model=st.session_state.selected_model,
+            temperature=0.0
+        )
+        
+        # JSON 문자열에서 실제 JSON 객체로 변환
+        import json
+        cleaned_json = sections.strip('```json').strip('```').strip()
+        return json.loads(cleaned_json)
+    except Exception as e:
+        st.error(f"이력서 섹션 분리 중 오류 발생: {str(e)}")
+        return None
+
+# 섹션별 수정 함수 추가
+def update_resume_section(section_type, section_content, feedback, job_description, job_analysis):
+    """사용자 피드백에 따라 특정 섹션만 수정"""
+    try:
+        updated_section = call_anthropic_api(
+            prompt=f"""
+            다음은 이력서의 '{section_type}' 섹션입니다:
+            
+            {section_content}
+            
+            사용자가 이 섹션에 대해 다음과 같은 피드백을 제공했습니다:
+            
+            {feedback}
+            
+            관련 채용 공고:
+            {job_description}
+            
+            채용 공고 분석:
+            {job_analysis}
+            
+            사용자의 피드백을 반영하여 이 섹션을 다시 작성해주세요. 
+            원래 섹션의 핵심 정보는 유지하되, 피드백에 따라 내용, 표현, 강조점을 조정해주세요.
+            피드백에 언급된 사항만 수정하고, 그 외 부분은 가능한 유지해주세요.
+            """,
+            model=st.session_state.selected_model,
+            temperature=0.3
+        )
+        
+        return updated_section
+    except Exception as e:
+        st.error(f"섹션 수정 중 오류 발생: {str(e)}")
+        return None
 
 # 사이드바에 API 키 설정
 with st.sidebar:
@@ -542,3 +622,67 @@ with tabs[3]:
                                 st.error("이력서 버전 이름을 입력해주세요.")
                     except Exception as e:
                         st.error(f"맞춤화 중 오류가 발생했습니다: {str(e)}")
+# 섹션별 피드백 및 수정 UI 코드 추가
+if 'tailored_result' in st.session_state and st.session_state.tailored_result:
+    st.markdown("<h3 class='subsection-header'>섹션별 피드백 및 수정</h3>", unsafe_allow_html=True)
+    
+    if 'resume_sections' not in st.session_state or not st.session_state.resume_sections:
+        if st.button("이력서 섹션 분리하기"):
+            with st.spinner("이력서를 섹션별로 분리하는 중..."):
+                st.session_state.resume_sections = split_resume_sections(st.session_state.tailored_result)
+    
+    if 'resume_sections' in st.session_state and st.session_state.resume_sections:
+        # 전문 요약 섹션 수정
+        with st.expander("전문 요약 수정", expanded=False):
+            summary = st.session_state.resume_sections.get("professional_summary", "")
+            st.text_area("현재 전문 요약", value=summary, height=100, disabled=True)
+            summary_feedback = st.text_area("수정 요청 사항", 
+                placeholder="예: 리더십 역량을 더 강조해주세요. AI 관련 경험을 추가해주세요.")
+            if st.button("전문 요약 업데이트"):
+                with st.spinner("전문 요약을 수정하는 중..."):
+                    updated_summary = update_resume_section(
+                        "전문 요약", 
+                        summary,
+                        summary_feedback,
+                        st.session_state.job_postings[selected_job_id]['content'],
+                        st.session_state.job_analyses.get(selected_job_id, "")
+                    )
+                    if updated_summary:
+                        st.session_state.resume_sections["professional_summary"] = updated_summary
+                        st.success("전문 요약이 업데이트되었습니다!")
+                        st.text_area("수정된 전문 요약", value=updated_summary, height=150)
+        
+        # 직무 경험 섹션 수정
+        with st.expander("직무 경험 수정", expanded=False):
+            work_experiences = st.session_state.resume_sections.get("work_experience", [])
+            for i, exp in enumerate(work_experiences):
+                st.subheader(f"{exp.get('title')} at {exp.get('company')}")
+                st.text_area(f"현재 내용 #{i+1}", value=exp.get('content', ""), height=100, disabled=True, key=f"exp_{i}")
+                exp_feedback = st.text_area("수정 요청 사항", 
+                    placeholder="예: 성과를 수치로 더 자세히 표현해주세요.",
+                    key=f"exp_feedback_{i}")
+                if st.button(f"이 경험 업데이트", key=f"update_exp_{i}"):
+                    with st.spinner("직무 경험을 수정하는 중..."):
+                        updated_exp = update_resume_section(
+                            "직무 경험", 
+                            exp.get('content', ""),
+                            exp_feedback,
+                            st.session_state.job_postings[selected_job_id]['content'],
+                            st.session_state.job_analyses.get(selected_job_id, "")
+                        )
+                        if updated_exp:
+                            st.session_state.resume_sections["work_experience"][i]["content"] = updated_exp
+                            st.success("직무 경험이 업데이트되었습니다!")
+                            st.text_area(f"수정된 내용", value=updated_exp, height=150)
+                st.divider()
+        
+        # 최종 이력서 재구성 버튼
+        if st.button("업데이트된 섹션으로 이력서 재구성", use_container_width=True):
+            with st.spinner("이력서를 재구성하는 중..."):
+                # 수정된 섹션들을 합쳐 새 이력서 생성
+                import json
+                reconstructed_resume = call_anthropic_api(
+                    prompt=f"""
+                    다음은 이력서의 각 섹션입니다. 이 섹션들을 자연스럽게 통합하여 완성된 이력서를 만들어주세요.
+                    
+                    {json.dumps(st.session_state.resume_sections, indent=2, ensure_ascii=False)}
