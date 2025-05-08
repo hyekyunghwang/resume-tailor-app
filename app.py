@@ -71,6 +71,10 @@ if 'api_key' not in st.session_state:
     st.session_state.api_key = ""
 if 'selected_model' not in st.session_state:
     st.session_state.selected_model = "claude-3-5-sonnet-20240620"
+if 'resume_sections' not in st.session_state:
+    st.session_state.resume_sections = None
+if 'tailored_result' not in st.session_state:
+    st.session_state.tailored_result = None
 
 #Anthropic API 호출 함수
 def call_anthropic_api(prompt, model="claude-3-haiku-20240307", max_tokens=4000, temperature=0.3, system=""):
@@ -514,7 +518,8 @@ with tabs[3]:
             else:
                 with st.spinner("이력서를 맞춤화하는 중... 잠시만 기다려주세요."):
                     try:
-                        result = tailor_resume_advanced(selected_job_id, selected_resumes)
+                        st.session_state.tailored_result = tailor_resume_advanced(selected_job_id, selected_resumes)
+                        result = st.session_state.tailored_result
                         
                         st.markdown("<h3 class='subsection-header'>맞춤화된 이력서 결과</h3>", unsafe_allow_html=True)
                         st.markdown("<div class='result-area'>" + result.replace('\n', '<br>') + "</div>", unsafe_allow_html=True)
